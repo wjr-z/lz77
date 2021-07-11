@@ -1,10 +1,5 @@
 #include "LZ77.h"
-#include "Allocator.h"
-#include <unordered_map>
 #include <stddef.h>
-#include "Huffman.h"
-
-double tot;
 
 enum { WINDOW_SIZE_BIT = 13 };
 enum { WINDOW_SIZE = 1 << WINDOW_SIZE_BIT };
