@@ -34,4 +34,5 @@ namespace lz77 {
 
 extern double tot;
 
+
 #endif LZ77_H
