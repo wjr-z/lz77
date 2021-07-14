@@ -3,7 +3,9 @@
 #include <string>
 
 namespace lz77 {
+	int compress(const void*input,int length,void*output);
 	std::string compress(const std::string& arr);
+	int decompress(const void*input,int length,void*output);
 	std::string decompress(const std::string&arr);
 }
 
