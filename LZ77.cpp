@@ -2,40 +2,68 @@
 #include <algorithm>
 #include <stddef.h>
 
-enum { WINDOW_SIZE_BIT = 13 };
-enum { WINDOW_SIZE = 1 << WINDOW_SIZE_BIT };
+#define LZLEVEL 2
 
-//不能压缩的标记符为0
+#if LZLEVEL == 1
 
-enum { BUFFER_SIZE_BIT = 10 };//重复长度为3~1024
-enum { BUFFER_SIZE = 1 << BUFFER_SIZE_BIT };
+#define WINDOW_SIZE_BIT 12
+#define WINDOW_SIZE (1<<WINDOW_SIZE_BIT)
 
-enum { MATCH_SIZE_BIT = 16 };//不压缩时最大长度
-enum { MATCH_SIZE = 1 << MATCH_SIZE_BIT };
+#define BUFFER_SIZE_BIT 12
+#define BUFFER_SIZE (1<<BUFFER_SIZE_BIT)
 
-enum { MATCH_LIMIT = 8 };//不压缩时最小可优化大小
-enum { LIST_LIMIT = 32 };//一条链表的最大size
+#define MATCH_SIZE_BIT 16
+#define MATCH_SIZE (1<<MATCH_SIZE_BIT)
+
+#define MATCH_LIMIT 6
+
+#endif
+
+#if LZLEVEL == 2
+
+#define WINDOW_SIZE_BIT 13
+#define WINDOW_SIZE (1<<WINDOW_SIZE_BIT)
+
+#define BUFFER_SIZE_BIT 14
+#define BUFFER_SIZE (1<<BUFFER_SIZE_BIT)
+
+#define MATCH_SIZE_BIT 16
+#define MATCH_SIZE (1<<MATCH_SIZE_BIT)
+
+#define MATCH_LIMIT 6
+#define LIST_LIMIT 64
+
+
+#endif
 
 namespace lz77 {
 
 	/*---对于前三个字符进行hash，快速匹配相应位置---*/
 	const uint32_t Size = 1 << 14 | 1;
 	const uint32_t fib = 2654435769;
+#if LZLEVEL == 1
+	uint32_t hastab[Size];
+#endif 
 
+#if LZLEVEL == 2
 	uint32_t List[Size], End[Size];
 	uint8_t ListSize[Size];
 
 	uint32_t nxt[WINDOW_SIZE | 1], key[WINDOW_SIZE | 1], stk[WINDOW_SIZE | 1], top;
 	uint32_t notused;
+#endif
 
 	inline uint32_t fibhash(const uint32_t& x) { return (x * fib) >> 18; }
-
 	inline uint32_t gethash(const void* ptr) {
 		return fibhash((*(uint32_t*)ptr) & 0xffffff);
 	}
 
 	void push_List(const uint8_t* str, uint32_t pos) {
+	#if LZLEVEL == 1
+		hastab[gethash(str+pos)]=pos;
+	#endif
 
+	#if LZLEVEL == 2
 		uint32_t head = gethash(str + pos);
 
 		if (ListSize[head] >= LIST_LIMIT ) {
@@ -57,25 +85,33 @@ namespace lz77 {
 			End[head] = x;
 		}
 		else List[head] = End[head] = x;
+	#endif
 	}
 	void pop_List(const uint8_t* str, uint32_t pos) {
+	#if LZLEVEL == 1
+	#endif
+	#if LZLEVEL == 2
 		uint32_t head = gethash(str + pos);
 		if (key[List[head]] != pos)return;
 
 		--ListSize[head];
 		stk[++top] = List[head];
 
-		if (List[head] != End[head]) {
+		if (List[head] != End[head])
 			List[head] = nxt[List[head]];
-		}
-		else {
+		else 
 			List[head] = End[head] = 0;
-		}
+	#endif
 	}
 
 	void lz77_push(const uint8_t* str, uint32_t pos) {
+	#if LZLEVEL == 1
+		push_List(str,pos);
+	#endif
+	#if LZLEVEL == 2
 		push_List(str, pos);
 		if (pos >= WINDOW_SIZE)pop_List(str, pos - WINDOW_SIZE);
+	#endif
 	}
 
 	uint32_t longestmatch(const uint8_t* str, uint32_t head, uint32_t Length, uint32_t& offset) {
@@ -86,8 +122,22 @@ namespace lz77 {
 
 		uint32_t longest = 0;
 
+		uint32_t LONGEST_LIMIT = std::min((uint32_t)BUFFER_SIZE - 1, Length - head);
+
 		uint32_t x = gethash(buffer), bufferhead, windowhead;
 
+	#if LZLEVEL == 1
+		if(hastab[x]==-1||(offset=head-hastab[x]-1)>=WINDOW_SIZE)return 0;
+		bufferhead=0;
+		windowhead=hastab[x];
+		while (bufferhead < LONGEST_LIMIT && str[windowhead] == buffer[bufferhead]) {
+			++bufferhead;
+			++windowhead;
+		}
+		return bufferhead>2?bufferhead:0;
+	#endif
+
+	#if LZLEVEL == 2
 		for (uint32_t i = List[x]; i; i = nxt[i]) {
 
 			bufferhead = 0;
@@ -95,8 +145,8 @@ namespace lz77 {
 
 			if (str[windowhead + longest] != buffer[longest])continue;
 
-			while (bufferhead < BUFFER_SIZE - 1 //最大为256
-				&& bufferhead < Length - head && str[windowhead] == buffer[bufferhead]) {
+			while (bufferhead < LONGEST_LIMIT 
+				&& str[windowhead] == buffer[bufferhead]) {
 				++bufferhead;
 				++windowhead;
 			}
@@ -104,12 +154,12 @@ namespace lz77 {
 			if (bufferhead > longest) {
 				offset = head - key[i] - 1;
 				longest = bufferhead;
-				if (longest == BUFFER_SIZE - 1)
+				if (longest == LONGEST_LIMIT)
 					break;
 			}
 		}
-
 		return longest > 2 ? longest : 0;
+	#endif
 	}
 
 	void writebuf(std::string& str, uint32_t& buf, uint32_t& bufsize) {
@@ -153,6 +203,10 @@ namespace lz77 {
 
 		lz77log2initial();
 
+	#if LZLEVEL == 1
+		memset(hastab,-1,sizeof(hastab));
+	#endif
+
 		for (uint32_t i = 0, j; i < Length;) {
 
 			j=i;
@@ -174,7 +228,6 @@ namespace lz77 {
 				else {
 					buf=buf<<3|4;
 					bufsize+=3;
-					writebuf(str,buf,bufsize);
 
 					uint32_t logMatchLength=lz77log2[matchLength- MATCH_LIMIT];
 					buf=buf<<(logMatchLength+1)|(((1<<logMatchLength)-1)<<1);
@@ -219,8 +272,10 @@ namespace lz77 {
 			bufsize = 8;
 			writebuf(str, buf, bufsize);
 		}
+	#if LZLEVEL ==2
 		for (uint32_t i = Length >= WINDOW_SIZE ? Length - WINDOW_SIZE : 0; i < Length; ++i)
 			pop_List(ql, i);
+	#endif
 
 		return str;
 	}
@@ -242,6 +297,10 @@ namespace lz77 {
 
 		lz77log2initial();
 
+	#if LZLEVEL == 1
+		memset(hastab, -1, sizeof(hastab));
+	#endif
+
 		for (uint32_t i = 0, j; i < Length;) {
 
 			j = i;
@@ -253,6 +312,7 @@ namespace lz77 {
 			}
 
 			if (matchLength) {
+
 				if (matchLength <= MATCH_LIMIT) {
 					for (j = 0; j < matchLength; ++j) {
 						buf = buf << 9 | ql[i++];
@@ -263,7 +323,6 @@ namespace lz77 {
 				else {
 					buf = buf << 3 | 4;
 					bufsize += 3;
-					writebuf(op, buf, bufsize);
 
 					uint32_t logMatchLength = lz77log2[matchLength - MATCH_LIMIT];
 					buf = buf << (logMatchLength + 1) | (((1 << logMatchLength) - 1) << 1);
@@ -308,8 +367,10 @@ namespace lz77 {
 			bufsize = 8;
 			writebuf(op, buf, bufsize);
 		}
+	#if LZLEVEL == 2
 		for (uint32_t i = Length >= WINDOW_SIZE ? Length - WINDOW_SIZE : 0; i < Length; ++i)
 			pop_List(ql, i);
+	#endif
 
 		return op - (uint8_t*)output;
 	}
@@ -320,6 +381,14 @@ namespace lz77 {
 		--bitsize;
 		++i;
 		return (bit >> bitsize) & 1;
+	}
+	uint8_t getbyte(const uint8_t*& ql, uint8_t& bit, uint8_t& bitsize, uint32_t& i) {
+		if(!bitsize)bit=*(ql++),bitsize=8;
+		uint8_t val=(bit<<(8-bitsize));
+		bit=*(ql++);
+		val|=(bit>>bitsize);
+		i+=8;
+		return val;
 	}
 
 	std::string decompress(const std::string& arr) {
@@ -340,10 +409,7 @@ namespace lz77 {
 			bool val = getbit(ql, bit, bitsize, i);
 			if (!val) {
 				if (i + 7 >= bufLength)break;
-				uint8_t _ch = 0;
-				for (uint32_t j = 0; j < 8; ++j)
-					_ch = _ch << 1 | getbit(ql, bit, bitsize, i);
-				str.push_back(_ch);
+				str.push_back(getbyte(ql,bit,bitsize,i));
 				++head;
 			}
 			else {
@@ -365,12 +431,8 @@ namespace lz77 {
 					for (uint8_t j = 0; j < logmatch; ++j) 
 						match=match<<1|getbit(ql,bit,bitsize,i);
 					match+=(1<<logmatch)+MATCH_LIMIT;
-					uint8_t _ch;
 					for (uint32_t j = 0; j < match; ++j) {
-						_ch=0;
-						for (uint8_t k = 0; k < 8; ++k) 
-							_ch=_ch<<1|getbit(ql,bit,bitsize,i);
-						str.push_back(_ch);
+						str.push_back(getbyte(ql,bit,bitsize,i));
 						++head;
 					}
 					continue;
@@ -408,10 +470,7 @@ namespace lz77 {
 			bool val = getbit(ql, bit, bitsize, i);
 			if (!val) {
 				if (i + 7 >= bufLength)break;
-				uint8_t _ch = 0;
-				for (uint32_t j = 0; j < 8; ++j)
-					_ch = _ch << 1 | getbit(ql, bit, bitsize, i);
-				*(op++)=_ch;
+				*(op++)=getbyte(ql,bit,bitsize,i);
 			}
 			else {
 				uint32_t logmatch = 1;
@@ -432,13 +491,8 @@ namespace lz77 {
 					for (uint8_t j = 0; j < logmatch; ++j)
 						match = match << 1 | getbit(ql, bit, bitsize, i);
 					match += (1 << logmatch) + MATCH_LIMIT;
-					uint8_t _ch;
-					for (uint32_t j = 0; j < match; ++j) {
-						_ch = 0;
-						for (uint8_t k = 0; k < 8; ++k)
-							_ch = _ch << 1 | getbit(ql, bit, bitsize, i);
-						*(op++)=_ch;
-					}
+					for (uint32_t j = 0; j < match; ++j) 
+						*(op++)=getbyte(ql,bit,bitsize,i);
 					continue;
 				}
 
