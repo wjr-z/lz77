@@ -1,4 +1,4 @@
-#include "LZ77.h"
+#include "lz77.h"
 #include <algorithm>
 #include <stddef.h>
 
