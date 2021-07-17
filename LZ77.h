@@ -1,6 +1,9 @@
 #ifndef LZ77_H
 #define LZ77_H
 #include <string>
+#include <queue>
+#include "Allocator.h"
+
 
 namespace lz77 {
 	int compress(const void*input,int length,void*output);
