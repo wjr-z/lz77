@@ -2,7 +2,6 @@
 #define LZ77_H
 #include <string>
 #include <queue>
-#include "Allocator.h"
 
 
 namespace lz77 {
